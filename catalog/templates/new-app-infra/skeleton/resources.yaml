@@ -1,0 +1,10 @@
+# Documenta os recursos de nuvem que este app precisa (hoje só o secret do
+# OCI Vault). O secret é criado à mão -- comando no output do template no
+# Backstage e no PERSONAL-INFRA-CONTEXT.md ("Quarto pivot").
+secrets:
+  - vaultSecretName: "${{ values.name }}-app-secrets"
+    kubernetesSecretName: "${{ values.name }}-secrets"
+    keys:
+      - SECRET_KEY
+      # - DATABASE_URL
+      # - ... liste aqui todas as chaves que o app espera do Secret

@@ -1,0 +1,28 @@
+# Usuário único deste Backstage pessoal. O nome do User precisa ser
+# igual ao login do GitHub: o signIn resolver `usernameMatchingUserEntityName`
+# (app-config.production.yaml) procura o User pelo username do GitHub.
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: felipe-e-ribeiro
+spec:
+  profile:
+    displayName: Felipe Ribeiro
+  memberOf: [platform]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: platform
+  description: Dono de tudo no oks-personal
+spec:
+  type: team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: oks-personal
+  description: Laboratório pessoal no OKE (oks-personal) -- apps em <app>-infra descobertos pelo ArgoCD
+spec:
+  owner: group:platform

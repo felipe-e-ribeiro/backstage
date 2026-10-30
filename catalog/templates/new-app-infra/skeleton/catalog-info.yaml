@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}-infra
+  description: ${{ values.description }}
+  annotations:
+    github.com/project-slug: felipe-e-ribeiro/${{ values.name }}-infra
+    argocd/app-name: ${{ values.name }}
+  links:
+    - url: https://${{ values.host }}
+      title: ${{ values.host }}
+  tags: [helm, platform-chart]
+spec:
+  type: infra
+  lifecycle: production
+  owner: group:platform
+  system: oks-personal

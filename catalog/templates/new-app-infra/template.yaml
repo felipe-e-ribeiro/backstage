@@ -1,0 +1,171 @@
+# Substitui o fluxo manual do app-infra-template:
+#   1. cria o repo <nome>-infra (platform-chart + ExternalSecret + Renovate)
+#   2. abre PR no argocd-bootstrap com apps-registry/<nome>.yaml (o ApplicationSet
+#      app-discovery cria a Application quando o PR for mergeado)
+#   3. registra o <nome>-infra no catálogo
+# O secret no OCI Vault continua manual de propósito (o Backstage não tem
+# credencial de escrita na OCI) -- o comando sai pronto no output.
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: new-app-infra
+  title: Novo app (<app>-infra)
+  description: Cria um <app>-infra no padrão do platform-chart e registra no ArgoCD (apps-registry)
+  tags: [helm, argocd, platform-chart]
+spec:
+  owner: group:platform
+  type: service
+
+  parameters:
+    - title: App
+      required: [name, description]
+      properties:
+        name:
+          title: Nome do app
+          type: string
+          description: Sem o sufixo -infra. Vira o nome do repo (<nome>-infra), da Application e do namespace.
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          ui:autofocus: true
+        description:
+          title: Descrição
+          type: string
+        visibility:
+          title: Visibilidade do repo
+          type: string
+          enum: [private, public]
+          default: private
+    - title: Componentes
+      required: [apiImage, apiPort, healthPath]
+      properties:
+        apiImage:
+          title: Imagem da API
+          type: string
+          description: Repository completo, sem tag (ex. ghcr.io/felipe-e-ribeiro/meu-app-api). A imagem precisa ser linux/arm64.
+        apiPort:
+          title: Porta da API
+          type: integer
+          default: 8000
+        healthPath:
+          title: Path do health check
+          type: string
+          default: /health
+        frontendEnabled:
+          title: Tem frontend estático/SPA?
+          type: boolean
+          default: false
+      dependencies:
+        frontendEnabled:
+          oneOf:
+            - properties:
+                frontendEnabled:
+                  const: false
+            - required: [frontendImage]
+              properties:
+                frontendEnabled:
+                  const: true
+                frontendImage:
+                  title: Imagem do frontend
+                  type: string
+                  description: Repository completo, sem tag. Também linux/arm64.
+                frontendPort:
+                  title: Porta do frontend
+                  type: integer
+                  default: 80
+    - title: Exposição
+      properties:
+        host:
+          title: Host público
+          type: string
+          description: Vazio = <nome>.felipeduribeiro.com.br (o DNS já tem wildcard)
+
+  steps:
+    - id: skeleton
+      name: Gerar <nome>-infra
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: ./infra
+        # Helm ({{ .Values }}) e GitHub Actions (${{ inputs }}) colidem com
+        # a sintaxe de template do Backstage -- copiados sem processar.
+        copyWithoutTemplating:
+          - templates/**
+          - .github/**
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          apiImage: ${{ parameters.apiImage }}
+          apiPort: ${{ parameters.apiPort }}
+          healthPath: ${{ parameters.healthPath }}
+          frontendEnabled: ${{ parameters.frontendEnabled }}
+          frontendImage: ${{ parameters.frontendImage }}
+          frontendPort: ${{ parameters.frontendPort }}
+          host: ${{ parameters.host or (parameters.name + '.felipeduribeiro.com.br') }}
+
+    - id: publish
+      name: Criar repo no GitHub
+      action: publish:github
+      input:
+        sourcePath: ./infra
+        repoUrl: github.com?owner=felipe-e-ribeiro&repo=${{ parameters.name }}-infra
+        description: Infra do ${{ parameters.name }} -- ${{ parameters.description }}
+        repoVisibility: ${{ parameters.visibility }}
+        defaultBranch: main
+        gitCommitMessage: 'feat: ${{ parameters.name }}-infra gerado pelo Backstage (template new-app-infra)'
+        protectDefaultBranch: false
+
+    - id: registry
+      name: Gerar apps-registry/<nome>.yaml
+      action: fetch:template
+      input:
+        url: ./registry
+        targetPath: ./registry
+        values:
+          name: ${{ parameters.name }}
+
+    - id: register-argocd
+      name: PR no argocd-bootstrap
+      action: publish:github:pull-request
+      input:
+        repoUrl: github.com?owner=felipe-e-ribeiro&repo=argocd-bootstrap
+        branchName: backstage/register-${{ parameters.name }}
+        title: 'feat: registra ${{ parameters.name }} no apps-registry'
+        description: |
+          Gerado pelo Backstage (template `new-app-infra`).
+
+          Antes de mergear, crie o secret `${{ parameters.name }}-app-secrets` no OCI Vault
+          (comando no output do template) -- senão o ExternalSecret fica em erro até ele existir.
+        sourcePath: ./registry
+        targetPath: apps-registry
+
+    - id: register-catalog
+      name: Registrar no catálogo
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repo ${{ parameters.name }}-infra
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: PR no argocd-bootstrap
+        url: ${{ steps['register-argocd'].output.remoteUrl }}
+      - title: Abrir no catálogo
+        icon: catalog
+        entityRef: ${{ steps['register-catalog'].output.entityRef }}
+    text:
+      - title: Falta o secret no OCI Vault
+        content: |
+          Crie um `secret.json` com as chaves listadas em `resources.yaml` e rode (perfil `DEV` do oci CLI):
+
+          ```bash
+          oci vault secret create-base64 --profile DEV \
+            --compartment-id ocid1.compartment.oc1..aaaaaaaaixd6safqb64t7xlall5qkkpolfw66nlsro4cwyo5flv22ld4dgkq \
+            --vault-id ocid1.vault.oc1.iad.ejvklwklaadoy.abuwcljtzqdceaxj56wbbl47rr53asyhxu3ujexlbrkbqjiqi3huh4j6ejrq \
+            --key-id ocid1.key.oc1.iad.ejvklwklaadoy.abuwcljtskytd2npmvqeeadubrn77wjcwzk6zbisotcshqggftzpveli4moq \
+            --secret-name "${{ parameters.name }}-app-secrets" \
+            --secret-content-content "$(base64 -w0 secret.json)" \
+            --secret-content-stage CURRENT --wait-for-state ACTIVE
+          ```
+
+          Depois, mergeie o PR no `argocd-bootstrap`.

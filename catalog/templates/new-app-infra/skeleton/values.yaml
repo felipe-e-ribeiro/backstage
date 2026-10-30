@@ -1,0 +1,49 @@
+# ${{ values.name }} -- gerado pelo Backstage (template new-app-infra). Schema
+# completo: https://github.com/felipe-e-ribeiro/personal-charts (values.yaml).
+
+platform-chart:
+  image:
+    registry: "" # vazio -- api/frontend usam repository completo
+  api:
+    enabled: true
+    image:
+      repository: ${{ values.apiImage }}
+      tag: "" # bumpado pelo CI do app (ou à mão)
+    port: ${{ values.apiPort }}
+    probes:
+      path: ${{ values.healthPath }}
+    # migration:
+    #   enabled: true
+    #   command: ["alembic", "upgrade", "head"]
+  frontend:
+{%- if values.frontendEnabled %}
+    enabled: true
+    image:
+      repository: ${{ values.frontendImage }}
+      tag: ""
+    port: ${{ values.frontendPort }}
+{%- else %}
+    enabled: false
+{%- endif %}
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    host: "${{ values.host }}"
+    tls:
+      enabled: true
+      secretName: "${{ values.name }}-tls"
+  # Produção via ArgoCD/ExternalSecret -- não preencha secrets.data aqui.
+  # O Secret "${{ values.name }}-secrets" é criado pelo ExternalSecret
+  # (templates/external-secret.yaml) a partir do OCI Vault.
+  secrets:
+    create: false
+    existingSecret: "${{ values.name }}-secrets"
+    databaseUrlEnvName: DATABASE_URL
+
+# Usado só pelo template local templates/external-secret.yaml (não é
+# repassado pro platform-chart).
+externalSecret:
+  vaultSecretName: "${{ values.name }}-app-secrets"
+  kubernetesSecretName: "${{ values.name }}-secrets"

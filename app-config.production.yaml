@@ -1,55 +1,77 @@
+# Produção: oks-personal, via backstage-infra (platform-chart) + ArgoCD.
+# Todo valor ${...} vem do Secret "backstage-secrets" (ExternalSecret <- OCI
+# Vault "backstage-app-secrets"); nada sensível fica na imagem.
+
 app:
-  # Should be the same as backend.baseUrl when using the `app-backend` plugin.
-  baseUrl: http://localhost:7007
+  baseUrl: https://backstage.felipeduribeiro.com.br
 
 backend:
-  # Note that the baseUrl should be the URL that the browser and other clients
-  # should use when communicating with the backend, i.e. it needs to be
-  # reachable not just from within the backend host, but from all of your
-  # callers. When its value is "http://localhost:7007", it's strictly private
-  # and can't be reached by others.
-  baseUrl: http://localhost:7007
-  # The listener can also be expressed as a single <host>:<port> string. In this case we bind to
-  # all interfaces, the most permissive setting. The right value depends on your specific deployment.
+  baseUrl: https://backstage.felipeduribeiro.com.br
   listen: ':7007'
-
-  # config options: https://node-postgres.com/apis/client
+  cors:
+    origin: https://backstage.felipeduribeiro.com.br
+    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+    credentials: true
   database:
     client: pg
+    # Um único banco "backstage" (role dona dele, sem CREATEDB) no Postgres
+    # compartilhado comprasweb-postgres.comprasweb, com um schema por plugin
+    # em vez do default de um banco por plugin.
+    pluginDivisionMode: schema
+    ensureExists: false
     connection:
       host: ${POSTGRES_HOST}
       port: ${POSTGRES_PORT}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
-      # https://node-postgres.com/features/ssl
-      # you can set the sslmode configuration option via the `PGSSLMODE` environment variable
-      # see https://www.postgresql.org/docs/current/libpq-ssl.html Table 33.1. SSL Mode Descriptions (e.g. require)
-      # ssl:
-      #   ca: # if you have a CA file and want to verify it you can uncomment this section
-      #     $file: <file-path>/ca/server.crt
+      database: backstage
+    knexConfig:
+      pool:
+        min: 0
+        max: 5
+
+integrations:
+  github:
+    - host: github.com
+      token: ${GITHUB_TOKEN}
 
 auth:
+  environment: production
   providers:
-    guest: {}
+    github:
+      production:
+        clientId: ${AUTH_GITHUB_CLIENT_ID}
+        clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
+        signIn:
+          resolvers:
+            # Só entra quem tiver um User com o mesmo nome do login do
+            # GitHub no catálogo (catalog/org.yaml) -- ou seja, só o dono.
+            - resolver: usernameMatchingUserEntityName
+
+techdocs:
+  builder: 'local'
+  generator:
+    runIn: 'local'
+  publisher:
+    type: 'local'
 
 catalog:
-  # Overrides the default list locations from app-config.yaml as these contain example data.
-  # See https://backstage.io/docs/features/software-catalog/#adding-components-to-the-catalog for more details
-  # on how to get entities into the catalog.
   locations:
-    # Local example data, replace this with your production config, these are intended for demo use only.
-    # File locations are relative to the backend process, typically in a deployed context, such as in a Docker container, this will be the root
     - type: file
-      target: ./examples/entities.yaml
-
-    # Local example template
+      target: ./catalog/org.yaml
+      rules:
+        - allow: [User, Group, System]
     - type: file
-      target: ./examples/template/template.yaml
+      target: ./catalog/templates/new-app-infra/template.yaml
       rules:
         - allow: [Template]
-
-    # Local example organizational data
-    - type: file
-      target: ./examples/org.yaml
-      rules:
-        - allow: [User, Group]
+    # <app>-infra existentes. Os criados pelo template se registram sozinhos
+    # (catalog:register), não precisam entrar aqui.
+    - type: url
+      target: https://github.com/felipe-e-ribeiro/backstage-infra/blob/main/catalog-info.yaml
+    - type: url
+      target: https://github.com/felipe-e-ribeiro/pulse-infra/blob/main/catalog-info.yaml
+    - type: url
+      target: https://github.com/felipe-e-ribeiro/checklist-compras-infra/blob/main/catalog-info.yaml
+    - type: url
+      target: https://github.com/felipe-e-ribeiro/dashboard-cloud-infra/blob/main/catalog-info.yaml
